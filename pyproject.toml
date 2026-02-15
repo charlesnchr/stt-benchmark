@@ -1,0 +1,9 @@
+[project]
+name = "stt-benchmark"
+version = "0.1.0"
+description = "Latency benchmark for real-time speech-to-text APIs"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28",
+    "websockets>=13",
+]

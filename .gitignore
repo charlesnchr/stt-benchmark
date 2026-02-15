@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv/
+
+# Secrets
+.env
+
+# Generated audio (regenerated on run)
+test_audio.wav
+test_audio.aiff
+test_audio.m4a
+
+# Iterative benchmark scripts (kept benchmark.py as the final version)
+benchmark2.py
+benchmark_final.py
+bench_gemini25.py
+bench_gemini3.py
