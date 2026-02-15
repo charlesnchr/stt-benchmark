@@ -1,18 +1,18 @@
 # Speech-to-Text API Latency Benchmark
 
-How fast can you go from audio to text? If you're building a real-time voice pipeline -- think voice assistants, live captioning, or dictation -- the answer matters a lot. A 200ms difference in your STT step compounds with every other piece of your stack.
+I wanted to know which STT API is actually fastest for real-time use. Not based on marketing pages or someone else's benchmark from last year, but measured myself, same audio, same machine, back to back.
 
-This repo benchmarks the major speech-to-text APIs head to head, measuring end-to-end latency and time to first token on the same audio clip, from the same machine, back to back.
+This repo is the result. It tests Groq, OpenAI, Azure OpenAI, Deepgram, Together, and Google Gemini on a ~6 second audio clip and reports end-to-end latency and time to first token.
 
-## The Results
+## Results
 
-Tested February 2026 from a residential US connection. ~5.7s audio clip (macOS TTS, 22kHz 16-bit mono WAV, 247 KB). 7 runs per provider, first dropped as warmup.
+Tested February 2026 from a residential connection in London. The test audio is ~5.7s of macOS TTS (22kHz 16-bit mono WAV, 247 KB). Each provider was hit 7 times, with the first run dropped as warmup.
 
 | Rank | Provider | Model | Median | Min | Max | Type |
 |------|----------|-------|--------|-----|-----|------|
-| 1 | **Groq** | whisper-large-v3-turbo | **637ms** | 530ms | 764ms | batch |
-| 2 | **Deepgram** | nova-3 | **710ms** | 557ms | 1551ms | batch |
-| 3 | **Together** | whisper-large-v3 | **835ms** | 621ms | 1075ms | batch |
+| 1 | Groq | whisper-large-v3-turbo | 637ms | 530ms | 764ms | batch |
+| 2 | Deepgram | nova-3 | 710ms | 557ms | 1551ms | batch |
+| 3 | Together | whisper-large-v3 | 835ms | 621ms | 1075ms | batch |
 | 4 | Google Gemini | 2.0 Flash (SSE) | 1101ms | 984ms | 1278ms | streaming |
 | 5 | Google Gemini | 2.0 Flash | 1149ms | 1036ms | 1584ms | batch |
 | 6 | Azure OpenAI | whisper | 1275ms | 1238ms | 1325ms | batch |
@@ -21,21 +21,19 @@ Tested February 2026 from a residential US connection. ~5.7s audio clip (macOS T
 | 9 | Google Gemini | 2.5 Flash | 1673ms | 1404ms | 2269ms | batch |
 | 10 | Google Gemini | 3 Flash (minimal) | 2300ms | 2047ms | 2413ms | batch |
 
-### What stands out
+### Observations
 
-**Groq wins on both speed and consistency.** A 637ms median with only ~230ms spread across runs. If you need one provider for real-time STT, this is it.
+Groq is the fastest and most consistent. 637ms median with only ~230ms spread. If you're picking one provider for real-time STT, this is the obvious choice.
 
-**Deepgram nova-3 is the runner-up** but watch the variance. Best case it's 557ms (faster than Groq's best), worst case 1551ms. You're rolling the dice on any given request.
+Deepgram nova-3 comes second but the variance is wide. Its best run (557ms) actually beat Groq's best, but its worst (1551ms) is nearly 3x the median. Any given request is unpredictable.
 
-**Together is a sleeper pick.** Running Whisper large-v3 at 835ms median with reasonable variance. Solid fallback if Groq goes down.
+Together runs full Whisper large-v3 at 835ms median with less variance than Deepgram. Worth considering as a fallback.
 
-**Gemini models work for transcription but aren't built for it.** They're general-purpose LLMs processing audio multimodally, not dedicated STT engines. Gemini 2.0 Flash is the fastest of the bunch at ~1.1s. Gemini 2.5 and 3 Flash are progressively slower due to their reasoning overhead.
+The Gemini models can do transcription but they're general-purpose LLMs, not dedicated STT. Gemini 2.0 Flash is the fastest of the three at ~1.1s. The 2.5 and 3 Flash variants are slower because of their reasoning steps. Gemini 3 Flash is the worst here because you [can't fully disable its thinking](https://discuss.ai.google.dev/t/critical-feedback-mandatory-thinking-in-gemini-3-flash-is-a-regression-in-ux-and-cost-efficiency/116017). The closest option is `thinkingLevel: "MINIMAL"`, which still adds ~700ms compared to 2.0 Flash.
 
-**Gemini 3 Flash can't turn off thinking.** Unlike 2.5 Flash (where `thinkingBudget: 0` works), Gemini 3 always thinks. The best you can do is `thinkingLevel: "MINIMAL"`, which still adds ~700ms over 2.0 Flash. This is a [known pain point](https://discuss.ai.google.dev/t/critical-feedback-mandatory-thinking-in-gemini-3-flash-is-a-regression-in-ux-and-cost-efficiency/116017).
+OpenAI and Azure are both above 1.2s. Azure also rate-limits aggressively at 3 RPM on the default Whisper tier.
 
-**OpenAI and Azure are the slowest dedicated STT options.** Both >1.2s median. Azure also has aggressive rate limits (3 RPM on the default tier).
-
-**Deepgram streaming was slower than batch here.** That's expected -- the websocket test sends all audio at once and waits. Streaming shines when you're sending audio live from a microphone and want partial results while the user is still talking. For buffered/recorded utterances, batch is faster.
+Deepgram's websocket streaming was slower than its batch API in this test. That makes sense because the test sends all audio at once and waits. Streaming is designed for live microphone input where you want partial results while the user is still talking. For pre-recorded or buffered audio, batch wins.
 
 ## Running it yourself
 
@@ -63,7 +61,7 @@ pip install httpx websockets
 python benchmark.py
 ```
 
-Set API keys as environment variables. Any provider without a key is skipped automatically -- you don't need all of them.
+Set API keys as environment variables. Any provider without a key is skipped automatically, so you don't need all of them.
 
 ```bash
 # Source your .env, or export individually:
@@ -108,11 +106,11 @@ Ranking by effective latency (batch=E2E median, streaming=TTFT median):
 
 ## What's being measured
 
-- **E2E (end-to-end):** Time from sending the HTTP request to receiving the complete transcript. For batch APIs, this is the only meaningful metric.
-- **TTFT (time to first token):** For streaming APIs (Deepgram websocket, Gemini SSE), time until the first partial transcript arrives. For batch APIs, TTFT equals E2E.
-- **Warmup handling:** First run per provider is dropped from statistics to exclude cold-start and connection setup overhead.
+E2E (end-to-end) is the time from sending the HTTP request to receiving the complete transcript. For batch APIs this is the only number that matters.
 
-All timing uses `time.perf_counter()` and includes full network round-trip time.
+TTFT (time to first token) applies to streaming APIs (Deepgram websocket, Gemini SSE). It's the time until the first partial transcript arrives. For batch APIs, TTFT is the same as E2E.
+
+The first run per provider is dropped to exclude cold-start and connection setup. All timing uses `time.perf_counter()` and includes network round-trip.
 
 ## Providers tested
 
@@ -120,18 +118,22 @@ All timing uses `time.perf_counter()` and includes full network round-trip time.
 |----------|-------|-----------|-------|
 | [Groq](https://console.groq.com/) | whisper-large-v3-turbo | OpenAI-compatible batch | Fastest overall |
 | [Deepgram](https://deepgram.com/) | nova-3 | REST batch + WebSocket streaming | Their own model, not Whisper |
-| [Together](https://www.together.ai/) | whisper-large-v3 | OpenAI-compatible batch | Running full-size Whisper |
+| [Together](https://www.together.ai/) | whisper-large-v3 | OpenAI-compatible batch | Full-size Whisper |
 | [OpenAI](https://platform.openai.com/) | whisper-1 | REST batch | The original |
-| [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service) | whisper | REST batch | Requires a Whisper deployment |
-| [Google Gemini](https://ai.google.dev/) | 2.0 Flash, 2.5 Flash, 3 Flash | REST batch + SSE streaming | LLM-based, not dedicated STT |
+| [Azure OpenAI](https://azure.microsoft.com/en-us/products/ai-services/openai-service) | whisper | REST batch | Requires a deployed Whisper model |
+| [Google Gemini](https://ai.google.dev/) | 2.0 Flash, 2.5 Flash, 3 Flash | REST batch + SSE streaming | LLM-based, not a dedicated STT model |
 
 ## Caveats
 
-- **Location matters.** These numbers are from a US residential connection. Results will vary with geography and network conditions.
-- **Audio length matters.** Longer audio will shift the rankings, particularly for providers that scale differently (Deepgram and Groq process audio faster than real-time; LLMs have fixed overhead per request).
-- **Rate limits are real.** Azure's default Whisper deployment is limited to 3 RPM. OpenAI has per-minute quotas. Groq and Deepgram are more generous.
-- **Gemini isn't a fair comparison.** It's an LLM doing transcription as a side effect of multimodal understanding. It's included because people ask about it, and because it actually works well for accuracy -- just not for speed.
-- **This measures latency, not accuracy.** All providers transcribed the test audio correctly, but accuracy on noisy real-world audio is a different story. Deepgram nova-3 and Whisper large-v3 tend to lead on accuracy benchmarks.
+These numbers are from London over residential broadband. Your results will differ depending on where you are and what your network looks like.
+
+Longer audio will change the rankings. Groq and Deepgram process audio faster than real-time, so longer clips don't proportionally increase latency. LLMs have more fixed overhead per request regardless of audio length.
+
+Rate limits vary. Azure's default Whisper deployment allows 3 requests per minute. OpenAI has per-minute quotas. Groq and Deepgram are more generous.
+
+Including Gemini is a bit unfair since it's an LLM doing transcription as a byproduct of multimodal understanding. It's here because people ask about it, and the accuracy is actually good. The speed just isn't there.
+
+This only measures latency, not accuracy. Every provider transcribed the test audio correctly, but that's synthetic TTS audio. Performance on noisy real-world recordings is another question.
 
 ## License
 
